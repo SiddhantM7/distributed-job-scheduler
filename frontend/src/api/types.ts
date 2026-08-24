@@ -130,6 +130,17 @@ export interface DLQEntry {
   resolved_at?: string | null;
 }
 
+export interface DLQSummary {
+  dlq_id: string;
+  job_id: string;
+  job_type: string;
+  category: string;
+  summary: string;
+  root_cause: string;
+  suggested_action: string;
+  generated_at: string;
+}
+
 export interface ProjectMetricsOverview {
   project_id: string;
   total_queues: number;

@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { usePolling } from '../hooks/usePolling';
-import { DLQEntry, Queue } from '../api/types';
+import { DLQEntry, DLQSummary, Queue } from '../api/types';
 
 export const DLQ: React.FC = () => {
   const { selectedProject } = useAuth();
@@ -11,6 +11,13 @@ export const DLQ: React.FC = () => {
   const [resolvedFilter, setResolvedFilter] = useState<string>('false');
   const [page, setPage] = useState<number>(1);
   const [selectedPayload, setSelectedPayload] = useState<Record<string, any> | null>(null);
+
+  // AI Failure Analysis State
+  const [analyzingDlqId, setAnalyzingDlqId] = useState<string | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState<boolean>(false);
+  const [analysisData, setAnalysisData] = useState<DLQSummary | null>(null);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [currentAnalyzingEntry, setCurrentAnalyzingEntry] = useState<DLQEntry | null>(null);
 
   // Load project queues
   useEffect(() => {
@@ -38,6 +45,7 @@ export const DLQ: React.FC = () => {
   const handleRetry = async (entry: DLQEntry) => {
     try {
       await api.retryDLQ(entry.id);
+      closeAnalysisModal();
       refresh();
     } catch (err: any) {
       alert(`Retry failed: ${err.message}`);
@@ -47,10 +55,47 @@ export const DLQ: React.FC = () => {
   const handleResolve = async (entry: DLQEntry) => {
     try {
       await api.resolveDLQ(entry.id);
+      closeAnalysisModal();
       refresh();
     } catch (err: any) {
       alert(`Resolve failed: ${err.message}`);
     }
+  };
+
+  const handleRequestAnalysis = async (entry: DLQEntry) => {
+    setCurrentAnalyzingEntry(entry);
+    setAnalyzingDlqId(entry.id);
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    setAnalysisData(null);
+    try {
+      const summary = await api.getDLQSummary(entry.id);
+      setAnalysisData(summary);
+    } catch (err: any) {
+      setAnalysisError(err.message || 'Unable to generate AI analysis.');
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
+  const closeAnalysisModal = () => {
+    setAnalyzingDlqId(null);
+    setAnalysisLoading(false);
+    setAnalysisData(null);
+    setAnalysisError(null);
+    setCurrentAnalyzingEntry(null);
+  };
+
+  const getCategoryColor = (category: string) => {
+    const cat = category.toUpperCase();
+    if (cat.includes('TIMEOUT')) return { bg: '#fef3c7', text: '#b45309', border: '#fde68a' };
+    if (cat.includes('NETWORK')) return { bg: '#e0f2fe', text: '#0369a1', border: '#bae6fd' };
+    if (cat.includes('5XX') || cat.includes('SERVER')) return { bg: '#fee2e2', text: '#b91c1c', border: '#fecaca' };
+    if (cat.includes('4XX') || cat.includes('CLIENT')) return { bg: '#ffedd5', text: '#c2410c', border: '#fed7aa' };
+    if (cat.includes('VALIDATION')) return { bg: '#f3e8ff', text: '#7e22ce', border: '#e9d5ff' };
+    if (cat.includes('DATABASE')) return { bg: '#fae8ff', text: '#86198f', border: '#f5d0fe' };
+    if (cat.includes('SERIALIZATION')) return { bg: '#e0e7ff', text: '#3730a3', border: '#c7d2fe' };
+    return { bg: '#f1f5f9', text: '#475569', border: '#cbd5e1' };
   };
 
   return (
@@ -60,7 +105,7 @@ export const DLQ: React.FC = () => {
         <div>
           <h1 style={{ fontSize: '1.5rem', margin: 0, fontWeight: 700 }}>Dead Letter Queue (DLQ)</h1>
           <p style={{ color: '#64748b', margin: '0.25rem 0 0 0', fontSize: '0.9rem' }}>
-            Triage permanently failed jobs and replay payload snapshots
+            Triage permanently failed jobs, inspect AI failure summaries, and replay payload snapshots
           </p>
         </div>
       </div>
@@ -126,12 +171,30 @@ export const DLQ: React.FC = () => {
                       {entry.last_error}
                     </div>
                   )}
-                  <button
-                    onClick={() => setSelectedPayload(entry.payload_snapshot)}
-                    style={{ marginTop: '0.25rem', padding: '0.15rem 0.4rem', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#f8fafc', cursor: 'pointer' }}
-                  >
-                    🔍 View Payload
-                  </button>
+                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem' }}>
+                    <button
+                      onClick={() => setSelectedPayload(entry.payload_snapshot)}
+                      style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem', borderRadius: '4px', border: '1px solid #cbd5e1', background: '#f8fafc', cursor: 'pointer' }}
+                    >
+                      🔍 View Payload
+                    </button>
+                    <button
+                      onClick={() => handleRequestAnalysis(entry)}
+                      disabled={analysisLoading && analyzingDlqId === entry.id}
+                      style={{
+                        padding: '0.15rem 0.45rem',
+                        fontSize: '0.7rem',
+                        borderRadius: '4px',
+                        border: '1px solid #c7d2fe',
+                        background: '#eef2ff',
+                        color: '#4338ca',
+                        fontWeight: 600,
+                        cursor: analysisLoading && analyzingDlqId === entry.id ? 'wait' : 'pointer',
+                      }}
+                    >
+                      {analysisLoading && analyzingDlqId === entry.id ? 'Analyzing...' : '✨ AI Analysis'}
+                    </button>
+                  </div>
                 </td>
                 <td style={{ padding: '0.75rem 1rem', fontFamily: 'monospace', fontSize: '0.75rem', color: '#64748b' }}>
                   {entry.job_id.slice(0, 8)}...
@@ -181,7 +244,7 @@ export const DLQ: React.FC = () => {
       {/* Payload Modal */}
       {selectedPayload && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ backgroundColor: '#ffffff', padding: '1.5rem', borderRadius: '10px', width: '500px', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div style={{ backgroundColor: '#ffffff', padding: '1.5rem', borderRadius: '10px', width: '500px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
             <h3 style={{ marginTop: 0, marginBottom: '0.75rem', fontSize: '1.1rem' }}>Payload Snapshot</h3>
             <pre style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '6px', fontSize: '0.85rem', overflowX: 'auto' }}>
               {JSON.stringify(selectedPayload, null, 2)}
@@ -194,6 +257,184 @@ export const DLQ: React.FC = () => {
                 Close
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Failure Analysis Modal */}
+      {(analyzingDlqId || analysisLoading || analysisData || analysisError) && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ backgroundColor: '#ffffff', padding: '1.75rem', borderRadius: '12px', width: '560px', maxWidth: '92%', maxHeight: '88vh', overflowY: 'auto', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)' }}>
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.3rem' }}>✨</span>
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#1e293b' }}>
+                  AI Failure Analysis
+                </h3>
+              </div>
+              <button
+                onClick={closeAnalysisModal}
+                style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Loading State */}
+            {analysisLoading && (
+              <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+                <div style={{ fontSize: '1.5rem', marginBottom: '0.75rem' }}>⚡</div>
+                <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '1rem' }}>Analyzing failure trace & logs...</div>
+                <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.25rem' }}>Diagnosing root cause and generating actionable recommendations.</div>
+              </div>
+            )}
+
+            {/* Error State */}
+            {!analysisLoading && analysisError && (
+              <div style={{ padding: '1rem', backgroundColor: '#fee2e2', color: '#b91c1c', borderRadius: '8px', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
+                <strong>Unable to generate AI analysis:</strong> {analysisError}
+              </div>
+            )}
+
+            {/* Success State */}
+            {!analysisLoading && analysisData && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* Category & Metadata Bar */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    {(() => {
+                      const colors = getCategoryColor(analysisData.category);
+                      return (
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '0.25rem 0.75rem',
+                            borderRadius: '9999px',
+                            fontSize: '0.75rem',
+                            fontWeight: 700,
+                            backgroundColor: colors.bg,
+                            color: colors.text,
+                            border: `1px solid ${colors.border}`,
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          {analysisData.category}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    Job: <strong>{analysisData.job_type}</strong> · {new Date(analysisData.generated_at).toLocaleTimeString()}
+                  </div>
+                </div>
+
+                {/* Executive Summary */}
+                <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    Executive Summary
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: '#1e293b', lineHeight: 1.5 }}>
+                    {analysisData.summary}
+                  </div>
+                </div>
+
+                {/* Root Cause */}
+                <div style={{ backgroundColor: '#fef2f2', padding: '1rem', borderRadius: '8px', border: '1px solid #fee2e2' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#991b1b', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    Technical Root Cause
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: '#7f1d1d', lineHeight: 1.5, wordBreak: 'break-word' }}>
+                    {analysisData.root_cause}
+                  </div>
+                </div>
+
+                {/* Suggested Action */}
+                <div style={{ backgroundColor: '#f0fdf4', padding: '1rem', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#166534', textTransform: 'uppercase', marginBottom: '0.35rem' }}>
+                    Recommended Action
+                  </div>
+                  <div style={{ fontSize: '0.85rem', color: '#14532d', lineHeight: 1.5 }}>
+                    {analysisData.suggested_action}
+                  </div>
+                </div>
+
+                {/* Action Buttons Footer */}
+                {currentAnalyzingEntry && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #f1f5f9' }}>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      {!currentAnalyzingEntry.resolved && (
+                        <>
+                          <button
+                            onClick={() => handleRetry(currentAnalyzingEntry)}
+                            style={{
+                              padding: '0.5rem 0.9rem',
+                              fontSize: '0.8rem',
+                              borderRadius: '6px',
+                              border: '1px solid #bbf7d0',
+                              background: '#dcfce7',
+                              color: '#15803d',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Re-Submit Job
+                          </button>
+                          <button
+                            onClick={() => handleResolve(currentAnalyzingEntry)}
+                            style={{
+                              padding: '0.5rem 0.9rem',
+                              fontSize: '0.8rem',
+                              borderRadius: '6px',
+                              border: '1px solid #cbd5e1',
+                              background: '#ffffff',
+                              color: '#334155',
+                              fontWeight: 500,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Acknowledge
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={closeAnalysisModal}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        fontSize: '0.8rem',
+                        borderRadius: '6px',
+                        border: '1px solid #cbd5e1',
+                        background: '#f8fafc',
+                        color: '#475569',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Error Close Footer */}
+            {!analysisLoading && analysisError && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                <button
+                  onClick={closeAnalysisModal}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    fontSize: '0.85rem',
+                    borderRadius: '6px',
+                    border: '1px solid #cbd5e1',
+                    background: '#f8fafc',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

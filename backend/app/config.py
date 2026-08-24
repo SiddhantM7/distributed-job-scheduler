@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     # Scheduler
     SCHEDULER_INTERVAL_SECONDS: float = 1.0
 
+    # LLM (NVIDIA NIM / OpenAI-compatible API)
+    LLM_API_KEY: str | None = None
+    LLM_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+    LLM_MODEL: str = "deepseek-ai/deepseek-v4-flash-0731"
+    LLM_PROVIDER: str = "nvidia"
+
     model_config = {"env_prefix": "", "env_file": ".env", "extra": "ignore"}
 
 

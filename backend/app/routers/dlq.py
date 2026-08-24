@@ -1,4 +1,4 @@
-"""Dead Letter Queue (DLQ) router: list, detail, retry, and resolve."""
+"""Dead Letter Queue (DLQ) router: list, detail, retry, resolve, and AI failure summary."""
 import uuid
 from typing import Optional
 
@@ -8,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.dependencies import get_db, get_current_user
 from app.models.tables import dead_letter_queue, organization_members, projects, queues
-from app.schemas.dlq import DLQResponse, PaginatedDLQ
+from app.schemas.dlq import DLQResponse, DLQSummaryResponse, PaginatedDLQ
 from app.schemas.jobs import JobResponse
 from app.services.dlq import resolve_dlq_entry_service, retry_dlq_entry_service
+from app.services.dlq_analyzer import generate_dlq_summary
 
 router = APIRouter(tags=["Dead Letter Queue"])
 
@@ -134,6 +135,17 @@ async def get_dlq_entry(
     """Get single DLQ entry detail."""
     row = await _require_dlq_access(id, current_user["id"], db)
     return DLQResponse(**row)
+
+
+@router.post("/dlq/{id}/summary", response_model=DLQSummaryResponse)
+async def summarize_dlq_entry(
+    id: uuid.UUID,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncConnection = Depends(get_db),
+) -> DLQSummaryResponse:
+    """Generate advisory AI / heuristic failure analysis summary for a DLQ entry."""
+    await _require_dlq_access(id, current_user["id"], db, required_roles=("owner", "admin", "member"))
+    return await generate_dlq_summary(db, id)
 
 
 @router.post("/dlq/{id}/retry", response_model=JobResponse, status_code=201)

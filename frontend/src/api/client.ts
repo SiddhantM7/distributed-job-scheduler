@@ -3,6 +3,7 @@
  */
 import {
   DLQEntry,
+  DLQSummary,
   Job,
   JobExecution,
   JobLog,
@@ -140,6 +141,8 @@ export const api = {
     return request<Paginated<DLQEntry>>(`/queues/${queueId}/dlq?${query.toString()}`);
   },
   getDLQEntry: (dlqId: string) => request<DLQEntry>(`/dlq/${dlqId}`),
+  getDLQSummary: (dlqId: string) =>
+    request<DLQSummary>(`/dlq/${dlqId}/summary`, { method: 'POST' }),
   retryDLQ: (dlqId: string) => request<Job>(`/dlq/${dlqId}/retry`, { method: 'POST' }),
   resolveDLQ: (dlqId: string) => request<DLQEntry>(`/dlq/${dlqId}/resolve`, { method: 'POST' }),
 

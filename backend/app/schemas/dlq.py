@@ -26,3 +26,15 @@ class PaginatedDLQ(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+class DLQSummaryResponse(BaseModel):
+    """AI and heuristic failure analysis summary for a DLQ entry."""
+    dlq_id: uuid.UUID
+    job_id: uuid.UUID
+    job_type: str
+    category: str
+    summary: str
+    root_cause: str
+    suggested_action: str
+    generated_at: datetime

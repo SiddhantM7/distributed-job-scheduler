@@ -24,6 +24,10 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://jobscheduler:jobscheduler@postgres:5432/jobscheduler
       JWT_SECRET: dev-secret-change-in-production
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL}
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_PROVIDER: ${LLM_PROVIDER}
     depends_on:
       postgres:
         condition: service_healthy
