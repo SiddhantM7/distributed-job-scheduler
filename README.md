@@ -2,7 +2,7 @@
 
 A production-style distributed job scheduling platform built with **FastAPI, PostgreSQL, Docker, React, and TypeScript**.
 
-The system provides queue-based job scheduling, retry policies, atomic job claiming, worker management, dead-letter queue handling, metrics, and a web dashboard.
+The system provides queue-based job scheduling, retry policies, atomic job claiming, worker management, dead-letter queue handling, metrics, AI-assisted failure analysis, and a web dashboard.
 
 ---
 
@@ -20,6 +20,7 @@ It supports:
 - Atomic job claiming using PostgreSQL row locking
 - Worker heartbeats and stale-worker recovery
 - Dead Letter Queue (DLQ)
+- AI-powered DLQ failure analysis
 - Execution history and logs
 - Project-level metrics
 - Real-time dashboard polling
@@ -32,27 +33,33 @@ It supports:
 
 ```text
                          ┌─────────────────────────┐
-                         │      React Dashboard     │
-                         │     TypeScript + Vite    │
+                         │      React Dashboard    │
+                         │     TypeScript + Vite   │
                          └────────────┬────────────┘
                                       │
                                       │ REST / JSON
                                       ▼
                          ┌─────────────────────────┐
                          │       FastAPI API       │
-                         │      Python 3.12         │
+                         │      Python 3.12        │
                          └────────────┬────────────┘
                                       │
                     ┌─────────────────┼─────────────────┐
                     │                 │                 │
                     ▼                 ▼                 ▼
               ┌───────────┐    ┌────────────┐    ┌─────────────┐
-              │ Scheduler │    │   Workers  │    │  PostgreSQL │
+              │ Scheduler │    │   Workers  │    │ PostgreSQL  │
               │  Service  │    │  Service   │    │   Database  │
               └─────┬─────┘    └──────┬─────┘    └─────────────┘
                     │                 │
                     └─────────────────┴──────────────►
                               Job Processing
+
+                         DLQ ──► AI Failure Analyzer
+                                  │
+                                  ▼
+                           Summary / Root Cause /
+                           Recommended Action
 ```
 
 ### Main Components
@@ -63,6 +70,7 @@ It supports:
 | Database | PostgreSQL 16 | Persistent job, queue, worker, execution and metrics data |
 | Scheduler | Python | Promotes delayed/scheduled jobs |
 | Workers | Python | Claims and executes jobs |
+| AI Analyzer | NVIDIA NIM / OpenAI-compatible API | Advisory DLQ failure analysis |
 | Frontend | React + TypeScript | Web dashboard and workload management |
 | Migrations | Alembic | Database schema migration |
 | ORM/DB Layer | SQLAlchemy | Async database access and SQL operations |
@@ -119,6 +127,8 @@ Supports:
 - Worker deregistration
 - Stale-worker detection
 - Stranded job recovery
+- Runtime worker claim loop
+- Concurrent job execution
 
 ## Dead Letter Queue
 
@@ -129,6 +139,25 @@ Supports:
 - Resolve/acknowledge DLQ entries
 - Payload snapshots
 - Failure metadata
+- AI-powered failure analysis
+- Automatic failure category classification
+- Root-cause analysis and recommended actions
+
+## AI Failure Analysis
+
+- NVIDIA NIM / OpenAI-compatible LLM integration
+- DeepSeek-based failure analysis
+- Structured failure summaries
+- Failure category classification
+- Technical root-cause explanation
+- Recommended operator action
+- Read-only advisory analysis
+- No automatic job mutation by the analyzer
+- Deterministic fallback when the LLM is unavailable
+- Provider/API failure fallback
+- Malformed-response fallback
+- Server-side API key handling
+- No API keys exposed to the frontend
 
 ## Metrics
 
@@ -155,11 +184,50 @@ The React dashboard provides:
 - Execution history
 - Worker fleet
 - Dead Letter Queue
+- AI Failure Analysis
 - Throughput visualization
 - Live polling
 - Queue pause/resume
 - Job retry/cancel
 - DLQ retry/resolve
+
+---
+
+# 📸 Screenshots
+
+The following screenshots show the current application UI.
+
+## Login
+
+![Login](docs/screenshots/login.png)
+
+## Registration
+
+![Registration](docs/screenshots/registration.png)
+
+## Dashboard
+
+![Dashboard](docs/screenshots/Dashboard.png)
+
+## Jobs Explorer
+
+![Jobs Explorer](docs/screenshots/Jobs%20explorer.png)
+
+## Queues
+
+![Queues](docs/screenshots/Queues.png)
+
+## Workers
+
+![Workers](docs/screenshots/Workers.png)
+
+## Dead Letter Queue
+
+![Dead Letter Queue](docs/screenshots/DLQ.png)
+
+## AI Failure Analysis
+
+![AI Failure Analysis](docs/screenshots/AI%20Failure%20Analysis.png)
 
 ---
 
@@ -181,8 +249,6 @@ Implemented:
 - Foreign keys
 - Partial indexes
 - Database trigger for `updated_at`
-
-The initial migration creates the complete database foundation used by subsequent phases.
 
 ### Database Tables
 
@@ -330,6 +396,9 @@ Implemented:
 - Worker details
 - Stale-worker detection
 - Stranded job recovery
+- Runtime worker process
+- Job claim loop
+- Concurrent execution
 
 Worker states include:
 
@@ -340,7 +409,7 @@ draining
 offline
 ```
 
-Heartbeat monitoring uses a timeout-based stale-worker mechanism.
+### Worker Recovery
 
 When a worker becomes stale:
 
@@ -362,35 +431,83 @@ Another worker can claim them
 
 ---
 
-## Phase 6 — Dead Letter Queue
+## Phase 6 — Dead Letter Queue + AI Failure Analysis
 
 Implemented:
 
 - DLQ listing
-- DLQ filtering
-- DLQ pagination
-- DLQ details
-- DLQ retry
-- DLQ resolve
+- Resolved/unresolved filtering
+- DLQ entry details
+- Retry from DLQ
+- Resolve/acknowledge DLQ entries
 - Payload snapshots
 - Failure metadata
-- Retry exhaustion handling
+- AI-powered failure analysis
+- Automatic failure category classification
+- Root-cause analysis
+- Recommended operator actions
+- NVIDIA NIM / OpenAI-compatible LLM integration
+- Deterministic heuristic fallback
+- Read-only advisory analysis
+- API/provider failure handling
 
-When a job exhausts its retry attempts, it can transition:
+### AI Analysis Response
+
+The AI analyzer produces structured information including:
 
 ```text
-failed
-  ↓
-dead_letter
-  ↓
-Dead Letter Queue
+Category
+Summary
+Root Cause
+Suggested Action
+Generated At
 ```
 
-The original job remains available for auditability while the DLQ stores a payload snapshot and failure information.
+### Failure Categories
+
+Supported deterministic categories include:
+
+- `TIMEOUT_ERROR`
+- `NETWORK_ERROR`
+- `HTTP_4XX_CLIENT_ERROR`
+- `HTTP_5XX_SERVER_ERROR`
+- `VALIDATION_ERROR`
+- `DATABASE_ERROR`
+- `SERIALIZATION_ERROR`
+- `UNKNOWN_ERROR`
+
+### AI Provider Configuration
+
+The provider is configured through environment variables:
+
+```env
+LLM_PROVIDER=nvidia
+LLM_BASE_URL=https://integrate.api.nvidia.com/v1
+LLM_MODEL=deepseek-ai/deepseek-v4-flash-0731
+LLM_API_KEY=
+```
+
+The API key is intentionally left empty in `.env.example`.
+
+**Never commit the real `.env` file or API key to GitHub.**
+
+### Fallback Behavior
+
+If:
+
+- no API key is configured,
+- the provider is unavailable,
+- the request fails,
+- the provider times out, or
+- the response is malformed,
+
+the analyzer falls back to deterministic error-pattern classification.
+
+The analyzer is **advisory only** and does not automatically retry, resolve, delete, or modify jobs.
 
 ### API Operations
 
-**4 endpoints**
+**5 endpoints**
 
 ---
 
@@ -400,6 +517,7 @@ Implemented backend metrics:
 
 ```text
 GET /api/v1/projects/{project_id}/metrics/overview
+
 GET /api/v1/projects/{project_id}/metrics/throughput
 ```
 
@@ -418,7 +536,12 @@ Implemented frontend dashboard:
 - Job Explorer
 - Worker fleet
 - DLQ management
+- AI Failure Analysis
 - Metrics dashboard
+
+### Authentication UI Update
+
+The Login and Register pages were redesigned with a modern split-screen developer/infrastructure visual style while preserving the existing authentication behavior.
 
 ### API Operations
 
@@ -426,9 +549,40 @@ Implemented frontend dashboard:
 
 ---
 
+# 🤖 AI Failure Analysis Architecture
+
+The AI feature is intentionally separated from the core scheduler.
+
+```text
+DLQ Entry
+   │
+   ▼
+DLQ Analyzer Service
+   │
+   ├── Gather failure context
+   │
+   ├── NVIDIA NIM / LLM
+   │        │
+   │        └── Structured analysis
+   │
+   └── Deterministic fallback
+            │
+            └── Error classification
+                     │
+                     ▼
+              API Response
+                     │
+                     ▼
+             React DLQ Modal
+```
+
+The AI service is read-only. The scheduler does not depend on the external LLM provider for job execution.
+
+---
+
 # 📊 API Summary
 
-The completed backend contains **48 API operations**.
+The completed backend contains **49 API operations**.
 
 | Area | Operations |
 |---|---:|
@@ -439,9 +593,15 @@ The completed backend contains **48 API operations**.
 | Retry Policies | 3 |
 | Jobs | 11 |
 | Workers | 8 |
-| Dead Letter Queue | 4 |
+| Dead Letter Queue | 5 |
 | Metrics | 2 |
-| **Total** | **48** |
+| **Total** | **49** |
+
+The AI failure-analysis endpoint is:
+
+```text
+POST /api/v1/dlq/{id}/summary
+```
 
 ---
 
@@ -457,7 +617,7 @@ http://localhost:8000/docs
 
 The Swagger interface allows you to:
 
-- Browse all 48 endpoints
+- Browse all 49 endpoints
 - Expand individual operations
 - Inspect request schemas
 - Inspect response schemas
@@ -547,6 +707,7 @@ job-scheduler/
 │   │   │   ├── jobs.py
 │   │   │   ├── workers.py
 │   │   │   ├── dlq.py
+│   │   │   ├── dlq_analyzer.py
 │   │   │   └── metrics.py
 │   │   │
 │   │   ├── config.py
@@ -573,7 +734,10 @@ job-scheduler/
 │   │   ├── test_queues.py
 │   │   ├── test_retry_policies.py
 │   │   ├── test_workers.py
+│   │   ├── test_worker_runtime.py
 │   │   ├── test_dlq.py
+│   │   ├── test_dlq_analyzer.py
+│   │   ├── test_dlq_summary_endpoint.py
 │   │   └── test_metrics.py
 │   │
 │   ├── Dockerfile
@@ -618,6 +782,15 @@ job-scheduler/
 │   └── tsconfig.json
 │
 ├── docs/
+│   ├── screenshots/
+│   │   ├── login.png
+│   │   ├── registration.png
+│   │   ├── Dashboard.png
+│   │   ├── Jobs explorer.png
+│   │   ├── Queues.png
+│   │   ├── Workers.png
+│   │   ├── DLQ.png
+│   │   └── AI Failure Analysis.png
 │   ├── api-spec.md
 │   ├── database-design.md
 │   ├── architecture.md
@@ -625,6 +798,7 @@ job-scheduler/
 │
 ├── .env.example
 ├── .gitignore
+├── README.md
 └── docker-compose.yml
 ```
 
@@ -666,15 +840,18 @@ Create a `.env` file based on:
 .env.example
 ```
 
-For example:
+For AI failure analysis, configure:
 
 ```env
-POSTGRES_USER=jobscheduler
-POSTGRES_PASSWORD=your_password
-POSTGRES_DB=jobscheduler
+LLM_PROVIDER=nvidia
+LLM_BASE_URL=https://integrate.api.nvidia.com/v1
+LLM_MODEL=deepseek-ai/deepseek-v4-flash-0731
+LLM_API_KEY=your_nvidia_api_key
 ```
 
-Do not commit `.env` to Git.
+**Never commit the real `.env` file or API key to Git.**
+
+The repository's `.gitignore` excludes `.env`.
 
 ---
 
@@ -768,10 +945,10 @@ Run the complete test suite:
 docker compose exec api pytest -v
 ```
 
-Current verification:
+### Current verification
 
 ```text
-78 passed
+94 passed
 1 warning
 ```
 
@@ -786,12 +963,17 @@ The test suite covers:
 - Atomic job claiming
 - Scheduled jobs
 - Worker management
+- Worker runtime
 - Worker recovery
 - DLQ
+- AI analyzer
+- AI summary endpoint
 - Metrics
 - Authorization
 - Validation
 - Failure scenarios
+
+AI tests mock the external provider, so the automated test suite does not depend on a live LLM API call.
 
 ---
 
@@ -840,8 +1022,11 @@ The project includes:
 - Worker ownership checks
 - Protected management operations
 - `.env` exclusion through `.gitignore`
+- Server-side AI API credentials
 
 Secrets should be supplied through environment variables rather than committed to source control.
+
+The NVIDIA/LLM API key is never placed in frontend code.
 
 ---
 
@@ -894,7 +1079,7 @@ Execution
  ↓
 Success ───────────────► Completed
  │
-Failure
+ Failure
  ↓
 Attempts remaining?
  ├── Yes ──► Retry policy ──► Scheduled
@@ -909,7 +1094,7 @@ Attempts remaining?
 ```text
 Worker registered
       ↓
-Heartbeat every 10 seconds
+Heartbeat
       ↓
 Worker becomes unavailable
       ↓
@@ -923,6 +1108,35 @@ Jobs become queued
       ↓
 Another worker claims them
 ```
+
+---
+
+## AI Failure Analysis
+
+```text
+Failed Job
+    ↓
+Dead Letter Queue
+    ↓
+AI Analysis Request
+    ↓
+Gather execution/error context
+    ↓
+NVIDIA NIM / DeepSeek
+    │
+    ├── Success ──► Structured summary
+    │
+    └── Failure ──► Deterministic fallback
+                         ↓
+                    Error category
+    ↓
+React AI Analysis Modal
+    ↓
+Operator decides:
+Retry / Acknowledge / Close
+```
+
+The AI analyzer does not make operational decisions automatically. The operator remains in control.
 
 ---
 
@@ -976,6 +1190,14 @@ Supported windows:
 - croniter
 - pytest
 - pytest-asyncio
+- OpenAI Python SDK for OpenAI-compatible LLM access
+
+### AI
+
+- NVIDIA NIM
+- DeepSeek model
+- OpenAI-compatible API interface
+- Deterministic heuristic fallback
 
 ### Frontend
 
@@ -1007,12 +1229,17 @@ Supported windows:
 | Scheduled jobs | ✅ Complete |
 | Atomic claiming | ✅ Complete |
 | Worker management | ✅ Complete |
+| Worker runtime | ✅ Complete |
 | Worker recovery | ✅ Complete |
 | Dead Letter Queue | ✅ Complete |
+| AI failure analyzer | ✅ Complete |
+| AI summary endpoint | ✅ Complete |
+| AI frontend integration | ✅ Complete |
 | Metrics | ✅ Complete |
 | React dashboard | ✅ Complete |
-| Swagger/OpenAPI | ✅ 48 operations |
-| Backend tests | ✅ 78 passed |
+| Login/Register redesign | ✅ Complete |
+| Swagger/OpenAPI | ✅ 49 operations |
+| Backend tests | ✅ 94 passed |
 | Frontend build | ✅ Successful |
 | Docker deployment | ✅ Successful |
 
@@ -1049,13 +1276,13 @@ Possible future extensions include:
 
 This project was developed as an academic/software engineering project.
 
-Add an explicit open-source license here if the project is intended to be distributed publicly.
+Add an explicit open-source license if the project is intended to be distributed publicly.
 
 ---
 
-## 👨‍💻 Project Status
+# 🎯 Project Status
 
-**Distributed Job Scheduler — Phases 1–7 Complete**
+**Distributed Job Scheduler — Phases 1–7 Complete + AI Failure Analysis + Frontend Redesign**
 
 ```text
 Foundation
@@ -1070,11 +1297,15 @@ Worker Management
     ↓
 Dead Letter Queue
     ↓
+AI Failure Analysis
+    ↓
 Metrics & Dashboard
+    ↓
+Modern Authentication UI
     ↓
 Dockerized Application
     ↓
-78 Automated Tests
+94 Automated Tests
 ```
 
-**48 API operations · 78 passing tests · Full React dashboard · Dockerized deployment**
+**49 API operations · 94 passing tests · AI-assisted DLQ analysis · Full React dashboard · Dockerized deployment**
